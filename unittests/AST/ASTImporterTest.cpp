@@ -2233,6 +2233,97 @@ TEST_P(ImportFunctions,
             }).match(ToTU, functionDecl()));
 }
 
+TEST_P(ImportFunctions, ImportOverriddenMethodTwice) {
+  auto Code =
+      R"(
+      struct B { virtual void f(); };
+      struct D:B { void f(); };
+      )";
+  auto BP = cxxMethodDecl(hasName("f"), hasParent(cxxRecordDecl(hasName("B"))));
+  auto DP = cxxMethodDecl(hasName("f"), hasParent(cxxRecordDecl(hasName("D"))));
+
+  Decl *FromTU0 = getTuDecl(Code, Lang_CXX);
+  auto *D = FirstDeclMatcher<CXXMethodDecl>().match(FromTU0, DP);
+  Import(D, Lang_CXX);
+
+  Decl *FromTU1 = getTuDecl(Code, Lang_CXX, "input1.cc");
+  auto *B = FirstDeclMatcher<CXXMethodDecl>().match(FromTU1, BP);
+  Import(B, Lang_CXX);
+
+  auto *ToTU = ToAST->getASTContext().getTranslationUnitDecl();
+  // this fails, because we have 2 decls:
+  EXPECT_EQ(DeclCounter<FunctionDecl>().match(ToTU, BP), 1u);
+}
+    
+TEST_P(ImportFunctions, ImportOverriddenMethodTwiceDefinitionFirst) {
+  auto CodeWithOutDef =
+      R"(
+      struct B { virtual void f(); };
+      struct D:B { void f(); };
+      )";
+  auto CodeWithDef =
+    R"(
+    struct B { virtual void f(){}; };
+    struct D:B { void f(){}; };
+  )";
+  auto BP = cxxMethodDecl(hasName("f"), hasParent(cxxRecordDecl(hasName("B"))));
+  auto DP = cxxMethodDecl(hasName("f"), hasParent(cxxRecordDecl(hasName("D"))));
+
+    Decl *ImportedD;
+    {
+        Decl *FromTU = getTuDecl(CodeWithDef, Lang_CXX, "input0.cc");
+        auto *FromD = FirstDeclMatcher<CXXMethodDecl>().match(FromTU, DP);
+        ImportedD = Import(FromD, Lang_CXX);
+        auto *ToTU = ToAST->getASTContext().getTranslationUnitDecl();
+        ToTU->dump();
+    }
+    {
+        Decl *FromTU = getTuDecl(CodeWithOutDef, Lang_CXX, "input1.cc");
+        auto *FromD = FirstDeclMatcher<CXXMethodDecl>().match(FromTU, BP);
+        Import(FromD, Lang_CXX);
+        auto *ToTU = ToAST->getASTContext().getTranslationUnitDecl();
+        ToTU->dump();
+    }
+
+  auto *ToTU = ToAST->getASTContext().getTranslationUnitDecl();
+  // this fails, because we have 2 decls:
+  EXPECT_EQ(DeclCounter<FunctionDecl>().match(ToTU, BP), 1u);
+  auto Pattern = translationUnitDecl(has(cxxMethodDecl(hasName("f"))));
+  EXPECT_EQ(DeclCounter<TranslationUnitDecl>().match(ToTU, Pattern), 0u) ;
+}
+
+TEST_P(ImportFunctions, ImportOverriddenMethodTwiceOutOfClassDef) {
+  auto Code =
+      R"(
+      struct B { virtual void f(); };
+      struct D:B { void f(); };
+      void B::f(){}
+      void D::f(){}
+      )";
+  auto BP = cxxMethodDecl(hasName("f"), hasParent(cxxRecordDecl(hasName("B"))));
+  auto DP = cxxMethodDecl(hasName("f"), hasParent(cxxRecordDecl(hasName("D"))));
+
+  Decl *FromTU0 = getTuDecl(Code, Lang_CXX);
+  auto *D = FirstDeclMatcher<CXXMethodDecl>().match(FromTU0, DP);
+  Import(D, Lang_CXX);
+  auto *ToTUTmp1 = ToAST->getASTContext().getTranslationUnitDecl();
+
+  Decl *FromTU1 = getTuDecl(Code, Lang_CXX, "input1.cc");
+  auto *B = FirstDeclMatcher<CXXMethodDecl>().match(FromTU1, BP);
+  Import(B, Lang_CXX);
+
+  auto *ToTU = ToAST->getASTContext().getTranslationUnitDecl();
+  // this fails, because we have 2 decls:
+  EXPECT_EQ(DeclCounter<FunctionDecl>().match(ToTU, BP), 1u);
+    
+  auto Pattern = translationUnitDecl(has(cxxMethodDecl(hasName("f"))));
+  EXPECT_EQ(DeclCounter<TranslationUnitDecl>().match(ToTU, Pattern), 1u);
+  auto TUDPAttern = cxxMethodDecl(hasName("f"), hasParent(translationUnitDecl()));
+  EXPECT_TRUE(LastDeclMatcher<FunctionDecl>().match(ToTU, TUDPAttern)->doesThisDeclarationHaveABody());
+  EXPECT_FALSE(LastDeclMatcher<FunctionDecl>().match(ToTU, BP)->doesThisDeclarationHaveABody());
+  EXPECT_FALSE(LastDeclMatcher<FunctionDecl>().match(ToTU, DP)->doesThisDeclarationHaveABody());
+}
+    
 struct ImportFriendFunctions : ImportFunctions {};
 
 TEST_P(ImportFriendFunctions, ImportFriendFunctionRedeclChainProto) {
