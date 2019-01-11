@@ -3038,6 +3038,14 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
         return make_error<ImportError>(ImportError::NameConflict);
     }
   }
+    
+  if (FoundByLookup) {
+    if (auto *MD = dyn_cast<CXXMethodDecl>(FoundByLookup)) {
+          // FIXME We should merge the two decl into one rather.
+          if (!D->doesThisDeclarationHaveABody())
+                return cast<Decl>(const_cast<FunctionDecl*>(FoundByLookup));
+        }
+   }
 
   DeclarationNameInfo NameInfo(Name, Loc);
   // Import additional name location/type info.
