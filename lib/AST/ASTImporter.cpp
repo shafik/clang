@@ -2968,7 +2968,7 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
   if (ToD)
     return ToD;
 
-  const FunctionDecl *FoundByLookup = nullptr;
+   FunctionDecl *FoundByLookup = nullptr;
   FunctionTemplateDecl *FromFT = D->getDescribedFunctionTemplate();
 
   // If this is a function template specialization, then try to find the same
@@ -3041,11 +3041,24 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
     
   if (FoundByLookup) {
     if (auto *MD = dyn_cast<CXXMethodDecl>(FoundByLookup)) {
-          // FIXME We should merge the two decl into one rather.
+        if (D->getLexicalDeclContext() == D->getDeclContext()) {
           if (!D->doesThisDeclarationHaveABody())
                 return cast<Decl>(const_cast<FunctionDecl*>(FoundByLookup));
+          else {
+            // Import the body of D and attach that to FoundByLookup.
+            // This should probably be refactored into a function since we do the
+            // same below too.
+            if (Stmt *FromBody = D->getBody()) {
+                if (ExpectedStmt ToBodyOrErr = import(FromBody))
+                    FoundByLookup->setBody(*ToBodyOrErr);
+                else
+                    return ToBodyOrErr.takeError();
+            }
+            return cast<Decl>(const_cast<FunctionDecl*>(FoundByLookup));
         }
-   }
+      }
+    }
+  }
 
   DeclarationNameInfo NameInfo(Name, Loc);
   // Import additional name location/type info.

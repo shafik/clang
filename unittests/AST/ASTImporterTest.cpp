@@ -2297,31 +2297,40 @@ TEST_P(ImportFunctions, ImportOverriddenMethodTwiceOutOfClassDef) {
       R"(
       struct B { virtual void f(); };
       struct D:B { void f(); };
-      void B::f(){}
-      void D::f(){}
+      void B::f(){};
       )";
-  auto BP = cxxMethodDecl(hasName("f"), hasParent(cxxRecordDecl(hasName("B"))));
-  auto DP = cxxMethodDecl(hasName("f"), hasParent(cxxRecordDecl(hasName("D"))));
+    
+  auto BFP = cxxMethodDecl(hasName("f"), hasParent(cxxRecordDecl(hasName("B"))));
+  auto BFPIsDef = cxxMethodDecl(hasName("f"), hasParent(cxxRecordDecl(hasName("B"))), isDefinition());
+  auto DFP = cxxMethodDecl(hasName("f"), hasParent(cxxRecordDecl(hasName("D"))));
 
   Decl *FromTU0 = getTuDecl(Code, Lang_CXX);
-  auto *D = FirstDeclMatcher<CXXMethodDecl>().match(FromTU0, DP);
+  auto *D = FirstDeclMatcher<CXXMethodDecl>().match(FromTU0, DFP);
   Import(D, Lang_CXX);
   auto *ToTUTmp1 = ToAST->getASTContext().getTranslationUnitDecl();
-
+    
+    
   Decl *FromTU1 = getTuDecl(Code, Lang_CXX, "input1.cc");
-  auto *B = FirstDeclMatcher<CXXMethodDecl>().match(FromTU1, BP);
+  auto *B = FirstDeclMatcher<CXXMethodDecl>().match(FromTU1, BFP);
   Import(B, Lang_CXX);
 
   auto *ToTU = ToAST->getASTContext().getTranslationUnitDecl();
-  // this fails, because we have 2 decls:
-  EXPECT_EQ(DeclCounter<FunctionDecl>().match(ToTU, BP), 1u);
+  
+  EXPECT_EQ(DeclCounter<FunctionDecl>().match(ToTU, BFP), 1u);
+  EXPECT_EQ(DeclCounter<FunctionDecl>().match(ToTU, BFPIsDef), 0u);
     
-  auto Pattern = translationUnitDecl(has(cxxMethodDecl(hasName("f"))));
-  EXPECT_EQ(DeclCounter<TranslationUnitDecl>().match(ToTU, Pattern), 1u);
-  auto TUDPAttern = cxxMethodDecl(hasName("f"), hasParent(translationUnitDecl()));
-  EXPECT_TRUE(LastDeclMatcher<FunctionDecl>().match(ToTU, TUDPAttern)->doesThisDeclarationHaveABody());
-  EXPECT_FALSE(LastDeclMatcher<FunctionDecl>().match(ToTU, BP)->doesThisDeclarationHaveABody());
-  EXPECT_FALSE(LastDeclMatcher<FunctionDecl>().match(ToTU, DP)->doesThisDeclarationHaveABody());
+  auto *ToB = FirstDeclMatcher<CXXRecordDecl>().match(ToTU, cxxRecordDecl(hasName("B")));
+  auto *ToBFInClass = FirstDeclMatcher<CXXMethodDecl>().match(ToTU, BFP);
+  auto *ToBFOutOfClass = FirstDeclMatcher<CXXMethodDecl>().match(ToTU, cxxMethodDecl(hasName("f"), isDefinition()));
+
+  // The definition should be out-of-class.
+  EXPECT_NE(ToBFInClass, ToBFOutOfClass);
+  EXPECT_NE(ToBFInClass->getLexicalDeclContext(),ToBFOutOfClass->getLexicalDeclContext());
+  EXPECT_EQ(ToBFOutOfClass->getDeclContext(), ToB);
+  EXPECT_EQ(ToBFOutOfClass->getLexicalDeclContext(), ToTU);
+    
+  // Check that the redecl chain is intact.
+  EXPECT_EQ(ToBFOutOfClass->getPreviousDecl(), ToBFInClass);
 }
     
 struct ImportFriendFunctions : ImportFunctions {};
